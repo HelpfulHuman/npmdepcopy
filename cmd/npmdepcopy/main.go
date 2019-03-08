@@ -22,7 +22,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&targetDir, "out", "i", "", "Target output directory to copy modules to (required)")
+	rootCmd.Flags().StringVarP(&targetDir, "out", "o", "", "Target output directory to copy modules to (required)")
 	rootCmd.MarkFlagRequired("out")
 }
 
