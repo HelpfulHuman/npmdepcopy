@@ -13,16 +13,28 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var targetDir string
+var inputDir string
+var outputDir string
 
 var rootCmd = &cobra.Command{
 	Use:   "npmdepcopy",
 	Short: "Copy NodeJS module dependencies for production to a target directory.",
-	RunE:  depCopy,
+	Run: func(cmd *cobra.Command, args []string) {
+		err := depCopy(cmd, args)
+		if err != nil {
+			fmt.Println(aurora.Red(err.Error()))
+		}
+	},
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&targetDir, "out", "o", "", "Target output directory to copy modules to (required)")
+	// wd, err := os.Getwd()
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	rootCmd.Flags().StringVarP(&inputDir, "in", "i", ".", "The input directory where the package.json and node_modules live")
+	rootCmd.Flags().StringVarP(&outputDir, "out", "o", "", "Target output directory to copy modules to (required)")
 	rootCmd.MarkFlagRequired("out")
 }
 
@@ -33,31 +45,52 @@ func main() {
 	}
 }
 
-func depCopy(cmd *cobra.Command, args []string) error {
+func depCopy(cmd *cobra.Command, args []string) (err error) {
 
-	dir, err := os.Getwd()
+	input, err := filepath.Abs(inputDir)
 	if err != nil {
-		return fmt.Errorf("failed to get current working directory\n%f", err)
+		return fmt.Errorf("unable to generate input path from option or current working directory\n%f", err)
 	}
 
-	out, err := exec.Command("npm", "ls", "--prod", "--parseable").Output()
-	if err != nil {
-		return fmt.Errorf("Failed to get list of dependencies from npm, is it installed?\n%f", err)
+	stat, err := os.Stat(input)
+	if err != nil || !stat.Mode().IsDir() {
+		return fmt.Errorf("given input path does not point to a valid directory\n%f", err)
 	}
 
-	packages := strings.Split(string(out), "\n")
+	npmi := exec.Command("npm", "i")
+	npmi.Dir = input
+	_, err = npmi.Output()
+	if err != nil {
+		return fmt.Errorf("failed to install dependencies for copying\n%f", err)
+	}
+
+	npmls := exec.Command("npm", "ls", "--prod", "--parseable")
+	npmls.Dir = input
+	result, err := npmls.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get list of dependencies from npm, is it installed?\n%f", err)
+	}
+
+	out, err := filepath.Abs(strings.TrimRight(outputDir, "/"))
+	if err != nil {
+		return fmt.Errorf("failed to create absolute filepath for output directory\n%f", err)
+	}
+
+	packages := strings.Split(string(result), "\n")
 	for _, packDir := range packages {
-		packDir = strings.Replace(packDir, dir, "", -1)
+		packDir = strings.Replace(packDir, input, "", -1)
 		if packDir == "" {
 			continue
 		}
 
 		packName := strings.Replace(packDir, "/node_modules/", "", -1)
+		fmt.Println(packName)
 
-		targetDir = strings.TrimRight(targetDir, "/")
+		fmt.Printf("Copying module '%s' to '%s' ... ", packName, out)
+		pinput := filepath.Join(input, packDir)
+		poutput := filepath.Join(out, packName)
 
-		fmt.Printf("Copying module '%s' to '%s' ... ", packName, targetDir)
-		if err := copy.Copy(dir+packDir, targetDir+"/"+packName); err != nil {
+		if err := copy.Copy(pinput, poutput); err != nil {
 			fmt.Printf("%s\n\n", aurora.Red("FAILED"))
 			return err
 		}
